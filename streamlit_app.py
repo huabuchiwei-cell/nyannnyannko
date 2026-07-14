@@ -2,8 +2,6 @@ import random
 
 import streamlit as st
 
-from word_builder_component import render_word_builder
-
 # ------------------------------
 # ページ設定
 # ------------------------------
@@ -64,7 +62,7 @@ def pick_new_word():
     st.session_state.current_index = random.randrange(len(WORDS))
     st.session_state.guess_input = ""
     st.session_state.show_answer = False
-    st.session_state.assembled_word = ""
+    st.session_state.assembled_parts = []
 
 
 def build_memory_cards():
@@ -117,8 +115,8 @@ if "guess_input" not in st.session_state:
     st.session_state.guess_input = ""
 if "show_answer" not in st.session_state:
     st.session_state.show_answer = False
-if "assembled_word" not in st.session_state:
-    st.session_state.assembled_word = ""
+if "assembled_parts" not in st.session_state:
+    st.session_state.assembled_parts = []
 if "memory_cards" not in st.session_state:
     start_memory_game()
 if "memory_selected" not in st.session_state:
@@ -155,7 +153,7 @@ with learn_tab:
     entry = WORDS[st.session_state.current_index]
     st.subheader(f"今の単語: {entry['word']}")
 
-    st.info("接頭語・語根・接尾語をドラッグして、英単語を組み立てましょう。")
+    st.info("接頭語・語根・接尾語をクリックして、英単語を組み立てましょう。")
 
     col1, col2 = st.columns([2, 3])
     with col1:
@@ -167,14 +165,34 @@ with learn_tab:
     with col2:
         st.markdown("**英単語を組み立てる**")
         parts = get_parts(entry)
-        component_value = render_word_builder(parts, key=f"builder_{st.session_state.current_index}")
-        if component_value:
-            st.session_state.assembled_word = component_value
+        
+        # パーツ選択ボタン
+        st.write("**パーツを選択:**")
+        cols_buttons = st.columns(len(parts))
+        for idx, part in enumerate(parts):
+            with cols_buttons[idx]:
+                if st.button(part, key=f"part_{st.session_state.current_index}_{idx}", use_container_width=True):
+                    st.session_state.assembled_parts.append(part)
+        
+        # 組み立てられた単語の表示
+        if st.session_state.assembled_parts:
+            assembled_word = "".join(st.session_state.assembled_parts)
+            st.write(f"**現在の組み立て:** {assembled_word}")
+            
+            col_undo, col_clear = st.columns(2)
+            with col_undo:
+                if st.button("最後を取り消す", use_container_width=True):
+                    st.session_state.assembled_parts.pop()
+                    st.rerun()
+            with col_clear:
+                if st.button("すべてクリア", use_container_width=True):
+                    st.session_state.assembled_parts = []
+                    st.rerun()
+        else:
+            assembled_word = ""
+            st.write("**現在の組み立て:** (なし)")
 
-        assembled_word = st.session_state.get("assembled_word", "")
-        if assembled_word:
-            st.write(f"現在の組み立て: {assembled_word}")
-
+        # 意味入力
         meaning_guess = st.text_input("意味を答えてください", value=st.session_state.guess_input)
         if st.button("意味を確認"):
             st.session_state.guess_input = meaning_guess
