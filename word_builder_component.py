@@ -2,7 +2,7 @@ from pathlib import Path
 
 import streamlit.components.v1 as components
 
-_component_path = Path(__file__).parent / "word_builder_component.html"
+_component_path = Path(__file__).parent
 
 word_builder = components.declare_component(
     name="word_builder",
