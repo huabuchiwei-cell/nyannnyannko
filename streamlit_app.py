@@ -1,10 +1,13 @@
-import streamlit as st
 import random
 
+import streamlit as st
+
+from word_builder_component import render_word_builder
+
 # ------------------------------
-# ページ設定（白基調）
+# ページ設定
 # ------------------------------
-st.set_page_config(page_title="英検2級 単語分解学習アプリ", page_icon="📚", layout="centered")
+st.set_page_config(page_title="英単語分解学習", page_icon="📚", layout="centered")
 
 st.markdown(
     """
@@ -17,8 +20,7 @@ st.markdown(
 )
 
 # ------------------------------
-# 英検2級レベルの語彙データ（簡易：接頭辞・語根・接尾語を分割）
-# 必要なら語彙を追加してください
+# 語彙データ
 # ------------------------------
 WORDS = [
     {"word": "unhappy", "meaning": "不幸な", "prefix": "un-", "root": "happy", "suffix": ""},
@@ -28,7 +30,7 @@ WORDS = [
     {"word": "misunderstand", "meaning": "誤解する", "prefix": "mis-", "root": "understand", "suffix": ""},
     {"word": "impossible", "meaning": "不可能な", "prefix": "im-", "root": "poss", "suffix": "-ible"},
     {"word": "transport", "meaning": "輸送する", "prefix": "trans-", "root": "port", "suffix": ""},
-    {"word": "submarine", "meaning": "潜水艦", "prefix": "sub-", "root": "marin", "suffix": "-e"},
+    {"word": "submarine", "meaning": "潜水艦", "prefix": "sub-", "root": "marine", "suffix": ""},
     {"word": "telephone", "meaning": "電話", "prefix": "tele-", "root": "phone", "suffix": ""},
     {"word": "autograph", "meaning": "署名", "prefix": "auto-", "root": "graph", "suffix": ""},
     {"word": "biology", "meaning": "生物学", "prefix": "bio-", "root": "logy", "suffix": ""},
@@ -59,95 +61,178 @@ COMMON_PREFIXES = [
 
 
 def pick_new_word():
-    st.session_state.current = random.randrange(len(WORDS))
+    st.session_state.current_index = random.randrange(len(WORDS))
+    st.session_state.guess_input = ""
+    st.session_state.show_answer = False
+    st.session_state.assembled_word = ""
 
 
-def reset_progress():
-    st.session_state.current = None
+def build_memory_cards():
+    pairs = random.sample(WORDS, 4)
+    cards = []
+    for entry in pairs:
+        cards.append(
+            {
+                "id": f"{entry['word']}_hint",
+                "text": f"{entry['prefix'] or '・'} + {entry['root']} + {entry['suffix'] or '・'}",
+                "pair": entry["word"],
+            }
+        )
+        cards.append(
+            {
+                "id": f"{entry['word']}_word",
+                "text": entry["word"],
+                "pair": entry["word"],
+            }
+        )
+    random.shuffle(cards)
+    return cards
 
 
-if "current" not in st.session_state:
-    st.session_state.current = None
+def start_memory_game():
+    st.session_state.memory_cards = build_memory_cards()
+    st.session_state.memory_selected = []
+    st.session_state.memory_matched = set()
+    st.session_state.memory_message = ""
+
+
+def normalize_text(text):
+    return " ".join(text.strip().lower().split())
+
+
+def get_parts(entry):
+    parts = []
+    if entry["prefix"]:
+        parts.append(entry["prefix"])
+    if entry["root"]:
+        parts.append(entry["root"])
+    if entry["suffix"]:
+        parts.append(entry["suffix"])
+    return parts
+
+
+if "current_index" not in st.session_state:
+    st.session_state.current_index = 0
+if "guess_input" not in st.session_state:
+    st.session_state.guess_input = ""
+if "show_answer" not in st.session_state:
+    st.session_state.show_answer = False
+if "assembled_word" not in st.session_state:
+    st.session_state.assembled_word = ""
+if "memory_cards" not in st.session_state:
+    start_memory_game()
+if "memory_selected" not in st.session_state:
+    st.session_state.memory_selected = []
+if "memory_matched" not in st.session_state:
+    st.session_state.memory_matched = set()
+if "memory_message" not in st.session_state:
+    st.session_state.memory_message = ""
 
 
 # ------------------------------
 # UI
 # ------------------------------
-st.title("📚 英検2級 — 接頭辞・語根・接尾語で覚える単語アプリ")
-st.write("白基調でシンプルに、接頭辞をヒントに単語を分解して覚えます。")
+st.title("📚 接頭語・語根・接尾語で英単語を覚える")
+st.write("接頭語・語根・接尾語の分解から英単語を推測する暗記法を中心にし、英単語神経衰弱をミニゲームとして楽しめます。")
 
 with st.sidebar:
-    st.header("ヒント: 接頭辞一覧")
+    st.header("覚え方のコツ")
+    st.write("• 接頭語は意味の方向を示します")
+    st.write("• 語根は中心的な意味の核です")
+    st.write("• 接尾語は品詞や意味の変化を表します")
+    st.divider()
+    st.header("接頭語一覧")
     st.write(", ".join(COMMON_PREFIXES))
     st.divider()
     if st.button("次の単語", use_container_width=True):
         pick_new_word()
-        st.experimental_rerun()
-    if st.button("リセット", use_container_width=True):
-        reset_progress()
-        st.experimental_rerun()
+    if st.button("ゲームをやり直す", use_container_width=True):
+        start_memory_game()
 
-mode = st.radio("モードを選択", ("学習モード", "テストモード"))
+learn_tab, game_tab = st.tabs(["暗記法", "英単語神経衰弱"])
 
-if st.session_state.current is None:
-    pick_new_word()
+with learn_tab:
+    entry = WORDS[st.session_state.current_index]
+    st.subheader(f"今の単語: {entry['word']}")
 
-entry = WORDS[st.session_state.current]
+    st.info("接頭語・語根・接尾語をドラッグして、英単語を組み立てましょう。")
 
-st.subheader(f"単語: {entry['word']}")
+    col1, col2 = st.columns([2, 3])
+    with col1:
+        st.markdown("**分解**")
+        st.write(f"接頭語: {entry['prefix'] or 'なし'}")
+        st.write(f"語根: {entry['root']}")
+        st.write(f"接尾語: {entry['suffix'] or 'なし'}")
 
-col1, col2 = st.columns([2, 3])
+    with col2:
+        st.markdown("**英単語を組み立てる**")
+        parts = get_parts(entry)
+        component_value = render_word_builder(parts, key=f"builder_{st.session_state.current_index}")
+        if component_value:
+            st.session_state.assembled_word = component_value
 
-with col1:
-    st.markdown("**ヒント（接頭辞）**")
-    # 接頭辞をヒントとして表示
-    prefix_hint = entry.get("prefix", "")
-    if prefix_hint:
-        st.info(prefix_hint)
-    else:
-        st.info("接頭辞なし")
+        assembled_word = st.session_state.get("assembled_word", "")
+        if assembled_word:
+            st.write(f"現在の組み立て: {assembled_word}")
 
-    if st.button("構成要素を表示する"):
-        st.success(f"接頭辞: {entry['prefix'] or '(なし)'}  — 語根: {entry['root'] or '(不明)'}  — 接尾語: {entry['suffix'] or '(なし)'}")
+        meaning_guess = st.text_input("意味を答えてください", value=st.session_state.guess_input)
+        if st.button("意味を確認"):
+            st.session_state.guess_input = meaning_guess
+            st.session_state.show_answer = True
 
-with col2:
-    if mode == "学習モード":
-        if st.checkbox("意味を表示する"):
-            st.write("意味: ", entry["meaning"])
-        st.write("---")
-        st.write("練習: 接頭辞を見て、語根や接尾語を確認しましょう。")
-    else:
-        st.write("---")
-        st.write("テスト: 各要素を入力してください（空白可）。正解は小文字でチェックします。")
-        p = st.text_input("接頭辞", key="pref_input")
-        r = st.text_input("語根", key="root_input")
-        s = st.text_input("接尾語", key="suf_input")
-        if st.button("採点する"):
-            correct = True
-            msgs = []
-            if p.strip().lower() != (entry['prefix'] or "").lower():
-                correct = False
-                msgs.append(f"接頭辞: 正解は {entry['prefix'] or '(なし)'}")
+        if st.session_state.show_answer:
+            if assembled_word.strip().lower() == entry["word"].lower() and normalize_text(meaning_guess) == normalize_text(entry["meaning"]):
+                st.success("正解です！英単語と意味の両方を覚えられています。")
+            elif assembled_word.strip().lower() == entry["word"].lower():
+                st.warning(f"単語は正解です。意味は「{entry['meaning']}」です。")
             else:
-                msgs.append("接頭辞: 正解")
+                st.error(f"単語は不正解です。正解は {entry['word']} です。意味は「{entry['meaning']}」です。")
 
-            if r.strip().lower() != (entry['root'] or "").lower():
-                correct = False
-                msgs.append(f"語根: 正解は {entry['root'] or '(不明)'}")
+        st.caption("例: un- + happy = unhappy")
+
+with game_tab:
+    st.write("カードをめくって、分解のヒントと英単語を対応させましょう。")
+    if st.button("カードをシャッフル"):
+        start_memory_game()
+
+    if st.session_state.memory_message:
+        st.info(st.session_state.memory_message)
+
+    if len(st.session_state.memory_matched) == len(st.session_state.memory_cards):
+        st.balloons()
+        st.success("すべてそろいました！分解のつながりを覚えられています。")
+
+    cards = st.session_state.memory_cards
+    cols = st.columns(4)
+    for index, card in enumerate(cards):
+        with cols[index % 4]:
+            card_id = card["id"]
+            is_matched = card_id in st.session_state.memory_matched
+            is_selected = card_id in st.session_state.memory_selected
+
+            if is_matched:
+                st.button(card["text"], key=f"memory_{card_id}", disabled=True)
             else:
-                msgs.append("語根: 正解")
+                label = card["text"] if is_selected else "？"
+                if st.button(label, key=f"memory_{card_id}"):
+                    if card_id in st.session_state.memory_selected:
+                        st.session_state.memory_selected.remove(card_id)
+                    elif len(st.session_state.memory_selected) < 2:
+                        st.session_state.memory_selected.append(card_id)
 
-            if s.strip().lower() != (entry['suffix'] or "").lower():
-                correct = False
-                msgs.append(f"接尾語: 正解は {entry['suffix'] or '(なし)'}")
-            else:
-                msgs.append("接尾語: 正解")
+                        if len(st.session_state.memory_selected) == 2:
+                            first_id = st.session_state.memory_selected[0]
+                            second_id = st.session_state.memory_selected[1]
+                            first_card = next(item for item in cards if item["id"] == first_id)
+                            second_card = next(item for item in cards if item["id"] == second_id)
 
-            if correct:
-                st.balloons()
-                st.success("すべて正解！よくできました！")
-            for m in msgs:
-                st.write(m)
+                            if first_card["pair"] == second_card["pair"]:
+                                st.session_state.memory_matched.update({first_id, second_id})
+                                st.session_state.memory_message = "一致しました！"
+                            else:
+                                st.session_state.memory_message = "違います。もう一度選んでみましょう。"
+
+                            st.session_state.memory_selected = []
 
 st.divider()
-st.caption("必要なら語彙を追加したり、問題数を増やして拡張できます。要望があれば教えてください。")
+st.caption("英単語は分解のつながりを意識すると覚えやすくなります。次は自分で接頭語・語根・接尾語を見つけてみましょう。")
