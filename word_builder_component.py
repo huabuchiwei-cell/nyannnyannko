@@ -11,4 +11,16 @@ word_builder = components.declare_component(
 
 
 def render_word_builder(parts, key=None):
-    return word_builder(parts=parts, key=key, default="")
+    return word_builder(mode="builder", parts=parts, key=key, default="")
+
+
+def render_memory_game(cards, selected, matched, message, key=None):
+    return word_builder(
+        mode="memory",
+        cards=cards,
+        selected=selected,
+        matched=matched,
+        message=message,
+        key=key,
+        default={},
+    )

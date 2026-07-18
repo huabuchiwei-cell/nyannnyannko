@@ -6,70 +6,138 @@
   <script src="https://cdn.jsdelivr.net/npm/streamlit-component-lib@2.0.0/dist/index.js"></script>
   <style>
     body { margin: 0; font-family: sans-serif; }
-    .builder-box { padding: 12px; border: 1px solid #d0d7de; border-radius: 10px; background: #f8fafc; }
+    .builder-box, .memory-box { padding: 12px; border: 1px solid #d0d7de; border-radius: 10px; background: #f8fafc; }
     .tokens { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
     .token { padding: 8px 12px; border-radius: 999px; background: #ffffff; border: 1px solid #7c3aed; color: #4c1d95; cursor: grab; user-select: none; }
     .drop-zone { min-height: 52px; padding: 12px; border: 2px dashed #7c3aed; border-radius: 10px; background: #fff; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: #6b7280; }
     .action-btn { margin-top: 10px; padding: 8px 12px; border: none; border-radius: 8px; background: #7c3aed; color: white; cursor: pointer; }
     .result { margin-top: 10px; font-weight: 600; color: #111827; }
+    .memory-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+    .card { width: 100%; aspect-ratio: 3 / 4; perspective: 800px; cursor: pointer; }
+    .card.disabled { cursor: default; opacity: 0.7; }
+    .card-inner { position: relative; width: 100%; height: 100%; transition: transform 0.5s; transform-style: preserve-3d; }
+    .card.flipped .card-inner { transform: rotateY(180deg); }
+    .card-face { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; border-radius: 12px; backface-visibility: hidden; font-size: 1rem; font-weight: 700; padding: 12px; text-align: center; }
+    .card-front { background: linear-gradient(180deg, #7c3aed 0%, #4f46e5 100%); color: white; }
+    .card-back { background: #fff; border: 2px solid #7c3aed; color: #111827; transform: rotateY(180deg); }
+    .card.matched .card-back { background: #d1fae5; border-color: #10b981; color: #065f46; }
+    .card:not(.disabled):hover .card-front { filter: brightness(1.07); }
+    .memory-message { margin-top: 10px; font-size: 0.95rem; color: #334155; }
   </style>
 </head>
 <body>
-  <div class="builder-box">
-    <div id="tokens" class="tokens"></div>
-    <div id="drop-zone" class="drop-zone">ここにドラッグして並べてください</div>
-    <button class="action-btn" onclick="resetBuilder()">やり直す</button>
-    <div id="result" class="result"></div>
-  </div>
+  <div id="component-root"></div>
   <script>
-    const tokensDiv = document.getElementById('tokens');
-    const dropZone = document.getElementById('drop-zone');
-    const result = document.getElementById('result');
-    let assembled = [];
-    let availableParts = [];
+    const root = document.getElementById('component-root');
+    let currentProps = {};
 
-    function renderParts(parts) {
-      availableParts = parts || [];
-      tokensDiv.innerHTML = availableParts.map(part => `<div class="token" draggable="true" data-value="${part}">${part}</div>`).join('');
-      document.querySelectorAll('.token').forEach(token => {
-        token.addEventListener('dragstart', drag);
+    function escapeHTML(value) {
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function setComponentHeight(height) {
+      Streamlit.setFrameHeight(height);
+    }
+
+    function renderBuilder(parts) {
+      root.innerHTML = `
+        <div class="builder-box">
+          <div id="tokens" class="tokens"></div>
+          <div id="drop-zone" class="drop-zone">ここにドラッグして並べてください</div>
+          <button class="action-btn" id="reset-btn">やり直す</button>
+          <div id="result" class="result"></div>
+        </div>
+      `;
+
+      const tokensDiv = document.getElementById('tokens');
+      const dropZone = document.getElementById('drop-zone');
+      const result = document.getElementById('result');
+      let assembled = [];
+
+      function update() {
+        const text = assembled.join('');
+        dropZone.innerHTML = assembled.length ? assembled.map(part => `<span class="token">${escapeHTML(part)}</span>`).join('') : 'ここにドラッグして並べてください';
+        result.textContent = '組み立てた単語: ' + text;
+        Streamlit.setComponentValue(text);
+      }
+
+      function resetBuilder() {
+        assembled = [];
+        update();
+      }
+
+      function drag(event) {
+        event.dataTransfer.setData('text/plain', event.target.dataset.value);
+      }
+
+      function drop(event) {
+        event.preventDefault();
+        const value = event.dataTransfer.getData('text/plain');
+        if (!value) return;
+        assembled.push(value);
+        update();
+      }
+
+      tokensDiv.innerHTML = (parts || []).map(part => `<div class="token" draggable="true" data-value="${escapeHTML(part)}">${escapeHTML(part)}</div>`).join('');
+      tokensDiv.querySelectorAll('.token').forEach(token => token.addEventListener('dragstart', drag));
+      dropZone.addEventListener('drop', drop);
+      dropZone.addEventListener('dragover', event => event.preventDefault());
+      document.getElementById('reset-btn').addEventListener('click', resetBuilder);
+      setComponentHeight(320);
+      update();
+    }
+
+    function renderMemoryGame(cards, selected, matched, message) {
+      const selectedSet = new Set(selected || []);
+      const matchedSet = new Set(matched || []);
+      const hasMessage = Boolean(message);
+      const grid = (cards || []).map(card => {
+        const isFlipped = selectedSet.has(card.id) || matchedSet.has(card.id);
+        const isDisabled = matchedSet.has(card.id);
+        const text = escapeHTML(card.text);
+        return `
+          <div class="card ${isFlipped ? 'flipped' : ''} ${isDisabled ? 'disabled' : ''}" data-id="${escapeHTML(card.id)}" role="button" tabindex="0">
+            <div class="card-inner">
+              <div class="card-face card-front">?</div>
+              <div class="card-face card-back">${text}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      root.innerHTML = `
+        <div class="memory-box">
+          <div class="memory-grid">${grid}</div>
+          <div class="memory-message">${hasMessage ? escapeHTML(message) : ''}</div>
+        </div>
+      `;
+
+      root.querySelectorAll('.card').forEach(cardEl => {
+        if (cardEl.classList.contains('disabled')) return;
+        cardEl.addEventListener('click', () => {
+          const cardId = cardEl.dataset.id;
+          Streamlit.setComponentValue({ action: 'select', id: cardId, clickId: `${cardId}-${Date.now()}` });
+        });
       });
-    }
 
-    function drag(event) {
-      event.dataTransfer.setData('text/plain', event.target.dataset.value);
+      setComponentHeight(420);
     }
-
-    function update() {
-      const text = assembled.join('');
-      dropZone.innerHTML = assembled.length ? assembled.map(part => `<span class="token">${part}</span>`).join('') : 'ここにドラッグして並べてください';
-      result.textContent = '組み立てた単語: ' + text;
-      Streamlit.setComponentValue(text);
-    }
-
-    function resetBuilder() {
-      assembled = [];
-      update();
-    }
-
-    function drop(event) {
-      event.preventDefault();
-      const value = event.dataTransfer.getData('text/plain');
-      if (!value) return;
-      assembled.push(value);
-      update();
-    }
-
-    dropZone.addEventListener('drop', drop);
-    dropZone.addEventListener('dragover', event => event.preventDefault());
 
     Streamlit.setComponentReady();
-    Streamlit.setFrameHeight(280);
 
     Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, event => {
       const props = event.detail.args || {};
-      renderParts(props.parts || []);
-      Streamlit.setFrameHeight(280);
+      currentProps = props;
+      if (props.mode === 'memory') {
+        renderMemoryGame(props.cards, props.selected, props.matched, props.message);
+      } else {
+        renderBuilder(props.parts || []);
+      }
     });
   </script>
 </body>

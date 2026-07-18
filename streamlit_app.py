@@ -1,6 +1,9 @@
+import json
 import random
 
 import streamlit as st
+import streamlit.components.v1 as components
+import word_builder_component as wb_component
 
 # ------------------------------
 # ページ設定
@@ -221,36 +224,44 @@ with game_tab:
         st.success("すべてそろいました！分解のつながりを覚えられています。")
 
     cards = st.session_state.memory_cards
-    cols = st.columns(4)
-    for index, card in enumerate(cards):
-        with cols[index % 4]:
-            card_id = card["id"]
-            is_matched = card_id in st.session_state.memory_matched
-            is_selected = card_id in st.session_state.memory_selected
+    selected_ids = list(st.session_state.memory_selected)
+    matched_ids = list(st.session_state.memory_matched)
 
-            if is_matched:
-                st.button(card["text"], key=f"memory_{card_id}", disabled=True)
-            else:
-                label = card["text"] if is_selected else "？"
-                if st.button(label, key=f"memory_{card_id}"):
-                    if card_id in st.session_state.memory_selected:
-                        st.session_state.memory_selected.remove(card_id)
-                    elif len(st.session_state.memory_selected) < 2:
-                        st.session_state.memory_selected.append(card_id)
+    memory_action = wb_component.render_memory_game(
+        cards=cards,
+        selected=selected_ids,
+        matched=matched_ids,
+        message=st.session_state.memory_message,
+        key="memory_game",
+    )
 
-                        if len(st.session_state.memory_selected) == 2:
-                            first_id = st.session_state.memory_selected[0]
-                            second_id = st.session_state.memory_selected[1]
-                            first_card = next(item for item in cards if item["id"] == first_id)
-                            second_card = next(item for item in cards if item["id"] == second_id)
+    if memory_action and isinstance(memory_action, dict):
+        action = memory_action.get("action")
+        card_id = memory_action.get("id")
+        click_id = memory_action.get("clickId")
 
-                            if first_card["pair"] == second_card["pair"]:
-                                st.session_state.memory_matched.update({first_id, second_id})
-                                st.session_state.memory_message = "一致しました！"
-                            else:
-                                st.session_state.memory_message = "違います。もう一度選んでみましょう。"
+        if action == "select" and card_id and click_id:
+            if st.session_state.get("last_memory_click") != click_id:
+                st.session_state.last_memory_click = click_id
+                if card_id in st.session_state.memory_selected:
+                    st.session_state.memory_selected.remove(card_id)
+                elif len(st.session_state.memory_selected) < 2:
+                    st.session_state.memory_selected.append(card_id)
 
-                            st.session_state.memory_selected = []
+                    if len(st.session_state.memory_selected) == 2:
+                        first_id = st.session_state.memory_selected[0]
+                        second_id = st.session_state.memory_selected[1]
+                        first_card = next(item for item in cards if item["id"] == first_id)
+                        second_card = next(item for item in cards if item["id"] == second_id)
+
+                        if first_card["pair"] == second_card["pair"]:
+                            st.session_state.memory_matched.update({first_id, second_id})
+                            st.session_state.memory_message = "一致しました！"
+                        else:
+                            st.session_state.memory_message = "違います。もう一度選んでみましょう。"
+
+                        st.session_state.memory_selected = []
+                st.experimental_rerun()
 
 st.divider()
 st.caption("英単語は分解のつながりを意識すると覚えやすくなります。次は自分で接頭語・語根・接尾語を見つけてみましょう。")
