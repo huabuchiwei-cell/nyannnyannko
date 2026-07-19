@@ -1,6 +1,7 @@
 import json
 import random
 
+import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 import word_builder_component as wb_component
@@ -14,7 +15,8 @@ st.markdown(
     """
     <style>
     .stApp { background: white; color: #111; }
-    .stButton>button { background-color: #f8f9fa; }
+    .stButton>button { background-color: #f8f9fa; border-radius: 16px; min-height: 92px; border: 2px solid #cbd5e1; }
+    .stButton>button:hover { border-color: #2563eb; transform: translateY(-1px); }
     </style>
     """,
     unsafe_allow_html=True,
@@ -67,6 +69,33 @@ def pick_new_word():
     st.session_state.show_answer = False
     st.session_state.assembled_parts = []
     st.session_state.card_stage = 0
+    st.session_state.answer_recorded = False
+    st.session_state.answer_feedback = ""
+
+
+def record_answer(is_correct):
+    entry = WORDS[st.session_state.current_index]
+    st.session_state.answer_results.append(
+        {
+            "word": entry["word"],
+            "correct": is_correct,
+        }
+    )
+    st.session_state.answer_feedback = "正解として記録しました。" if is_correct else "不正解として記録しました。"
+    st.session_state.answer_recorded = True
+
+
+def get_accuracy_data():
+    results = st.session_state.get("answer_results", [])
+    if not results:
+        return pd.DataFrame({"回数": [], "正答率(%)": []})
+
+    cumulative_correct = 0
+    rows = []
+    for index, result in enumerate(results, start=1):
+        cumulative_correct += 1 if result["correct"] else 0
+        rows.append({"回数": index, "正答率(%)": round(cumulative_correct / index * 100, 1)})
+    return pd.DataFrame(rows)
 
 
 def go_to_next_word():
@@ -82,21 +111,23 @@ def go_to_previous_word():
 
 
 def build_memory_cards():
-    pairs = random.sample(WORDS, 4)
+    pairs = random.sample(WORDS, 8)
     cards = []
     for entry in pairs:
-        cards.append(
-            {
-                "id": f"{entry['word']}_hint",
-                "text": f"{entry['prefix'] or '・'} + {entry['root']} + {entry['suffix'] or '・'}",
-                "pair": entry["word"],
-            }
-        )
         cards.append(
             {
                 "id": f"{entry['word']}_word",
                 "text": entry["word"],
                 "pair": entry["word"],
+                "kind": "word",
+            }
+        )
+        cards.append(
+            {
+                "id": f"{entry['word']}_meaning",
+                "text": entry["meaning"],
+                "pair": entry["word"],
+                "kind": "meaning",
             }
         )
     random.shuffle(cards)
@@ -108,6 +139,7 @@ def start_memory_game():
     st.session_state.memory_selected = []
     st.session_state.memory_matched = set()
     st.session_state.memory_message = ""
+    st.session_state.memory_pending_clear_ids = []
 
 
 def normalize_text(text):
@@ -165,6 +197,24 @@ def get_parts(entry):
     return parts
 
 
+def save_word_memo(word, text):
+    cleaned = text.strip()
+    if cleaned:
+        st.session_state.word_memos[word] = cleaned
+    else:
+        st.session_state.word_memos.pop(word, None)
+    st.session_state.memo_feedback = "メモを保存しました。" if cleaned else "メモを削除しました。"
+    st.session_state.memo_target_word = word
+
+
+def get_memo_for_word(word):
+    return st.session_state.word_memos.get(word, "")
+
+
+def get_current_memo():
+    return get_memo_for_word(st.session_state.memo_target_word)
+
+
 if "current_index" not in st.session_state:
     st.session_state.current_index = 0
 if "card_stage" not in st.session_state:
@@ -183,6 +233,20 @@ if "memory_matched" not in st.session_state:
     st.session_state.memory_matched = set()
 if "memory_message" not in st.session_state:
     st.session_state.memory_message = ""
+if "memory_pending_clear_ids" not in st.session_state:
+    st.session_state.memory_pending_clear_ids = []
+if "answer_results" not in st.session_state:
+    st.session_state.answer_results = []
+if "answer_feedback" not in st.session_state:
+    st.session_state.answer_feedback = ""
+if "answer_recorded" not in st.session_state:
+    st.session_state.answer_recorded = False
+if "word_memos" not in st.session_state:
+    st.session_state.word_memos = {}
+if "memo_feedback" not in st.session_state:
+    st.session_state.memo_feedback = ""
+if "memo_target_word" not in st.session_state:
+    st.session_state.memo_target_word = WORDS[0]["word"]
 
 
 # ------------------------------
@@ -219,7 +283,21 @@ with st.sidebar:
     if st.button("ゲームをやり直す", use_container_width=True):
         start_memory_game()
 
-learn_tab, game_tab = st.tabs(["英単語を暗記する", "神経衰弱"])
+    st.divider()
+    st.header("単語検索")
+    search_query = st.text_input("単語を検索", placeholder="例: happy")
+    matched_words = [entry["word"] for entry in WORDS if search_query.lower() in entry["word"].lower()]
+    if matched_words:
+        selected_word = st.selectbox("検索結果", matched_words, key="memo_search_word")
+        if st.button("この単語をメモ編集", use_container_width=True):
+            st.session_state.memo_target_word = selected_word
+            st.session_state.current_index = next(i for i, entry in enumerate(WORDS) if entry["word"] == selected_word)
+            st.session_state.card_stage = 0
+            st.rerun()
+    elif search_query:
+        st.info("一致する単語はありません。")
+
+learn_tab, game_tab, record_tab, memo_tab = st.tabs(["英単語を暗記する", "神経衰弱", "学習記録", "覚え方メモ"])
 
 with learn_tab:
     entry = WORDS[st.session_state.current_index]
@@ -239,6 +317,9 @@ with learn_tab:
             part_lines.append(f"語幹: {entry['root']}（{get_part_translation(entry['root'])}）")
         if entry["suffix"]:
             part_lines.append(f"接尾語: {entry['suffix']}（{get_part_translation(entry['suffix'])}）")
+        current_memo = get_current_memo()
+        if current_memo:
+            part_lines.append(f"<br>覚え方メモ: {current_memo}")
         render_card(
             "2枚目",
             f"<div>{'<br>'.join(part_lines)}</div>",
@@ -246,6 +327,20 @@ with learn_tab:
         )
     else:
         render_card("3枚目", f"<div style='font-size:1.3rem; font-weight:700; color:#111827;'>英単語の日本語訳: {entry['meaning']}</div>")
+
+    if stage == 2:
+        if st.session_state.answer_feedback:
+            st.success(st.session_state.answer_feedback)
+
+        answer_col1, answer_col2 = st.columns(2)
+        with answer_col1:
+            if st.button("正解", use_container_width=True):
+                record_answer(True)
+                st.rerun()
+        with answer_col2:
+            if st.button("不正解", use_container_width=True):
+                record_answer(False)
+                st.rerun()
 
     col_back, col_next = st.columns(2)
     with col_back:
@@ -258,14 +353,18 @@ with learn_tab:
     with col_next:
         if st.button("めくる", use_container_width=True):
             if stage == 2:
-                go_to_next_word()
+                if not st.session_state.answer_recorded:
+                    st.warning("3枚目の日本語訳で正解・不正解を選んでください。")
+                else:
+                    go_to_next_word()
+                    st.rerun()
             else:
                 st.session_state.card_stage = min(2, stage + 1)
-            st.rerun()
+                st.rerun()
 
 with game_tab:
-    st.write("カードをめくって、分解のヒントと英単語を対応させましょう。")
-    if st.button("カードをシャッフル"):
+    st.write("英単語と日本語訳のカードをめくって、8セットをそろえましょう。")
+    if st.button("カードをシャッフル", use_container_width=True):
         start_memory_game()
 
     if st.session_state.memory_message:
@@ -273,33 +372,40 @@ with game_tab:
 
     if len(st.session_state.memory_matched) == len(st.session_state.memory_cards):
         st.balloons()
-        st.success("すべてそろいました！分解のつながりを覚えられています。")
+        st.success("すべてそろいました！英単語と意味のつながりを覚えられています。")
 
     cards = st.session_state.memory_cards
     selected_ids = list(st.session_state.memory_selected)
-    matched_ids = list(st.session_state.memory_matched)
+    matched_ids = set(st.session_state.memory_matched)
 
-    memory_action = wb_component.render_memory_game(
-        cards=cards,
-        selected=selected_ids,
-        matched=matched_ids,
-        message=st.session_state.memory_message,
-        key="memory_game",
-    )
+    cols = st.columns(4)
+    for index, card in enumerate(cards):
+        with cols[index % 4]:
+            is_revealed = card["id"] in selected_ids or card["id"] in matched_ids
+            if is_revealed:
+                label = card["text"]
+                card_kind = "英単語" if card["kind"] == "word" else "日本語訳"
+            else:
+                label = "？"
+                card_kind = "裏面"
 
-    if memory_action and isinstance(memory_action, dict):
-        action = memory_action.get("action")
-        card_id = memory_action.get("id")
-        click_id = memory_action.get("clickId")
+            if st.button(
+                label,
+                key=f"memory_card_{card['id']}",
+                use_container_width=True,
+            ):
+                if st.session_state.get("memory_pending_clear_ids"):
+                    st.session_state.memory_selected = []
+                    st.session_state.memory_pending_clear_ids = []
+                    st.session_state.memory_message = ""
 
-        if action == "select" and card_id and click_id:
-            if st.session_state.get("last_memory_click") != click_id:
-                st.session_state.last_memory_click = click_id
-                if card_id in st.session_state.memory_selected:
-                    st.session_state.memory_selected.remove(card_id)
+                if card["id"] in matched_ids:
+                    st.session_state.memory_message = "すでにそろっています。"
+                elif card["id"] in st.session_state.memory_selected:
+                    st.session_state.memory_selected.remove(card["id"])
+                    st.session_state.memory_message = ""
                 elif len(st.session_state.memory_selected) < 2:
-                    st.session_state.memory_selected.append(card_id)
-
+                    st.session_state.memory_selected.append(card["id"])
                     if len(st.session_state.memory_selected) == 2:
                         first_id = st.session_state.memory_selected[0]
                         second_id = st.session_state.memory_selected[1]
@@ -309,11 +415,61 @@ with game_tab:
                         if first_card["pair"] == second_card["pair"]:
                             st.session_state.memory_matched.update({first_id, second_id})
                             st.session_state.memory_message = "一致しました！"
+                            st.session_state.memory_pending_clear_ids = []
+                            st.session_state.memory_selected = []
                         else:
                             st.session_state.memory_message = "違います。もう一度選んでみましょう。"
+                            st.session_state.memory_pending_clear_ids = [first_id, second_id]
+                    st.rerun()
+                else:
+                    st.session_state.memory_message = "2枚まで選べます。"
 
-                        st.session_state.memory_selected = []
-                st.experimental_rerun()
+            if is_revealed:
+                st.caption(f"{card_kind}")
+            else:
+                st.caption("裏面")
+
+with record_tab:
+    st.subheader("回数ごとの正答率")
+    chart_data = get_accuracy_data()
+    if chart_data.empty:
+        st.info("まだ回答がありません。英単語カードで正解・不正解を記録してください。")
+    else:
+        st.line_chart(chart_data.set_index("回数")["正答率(%)"])
+        total_attempts = len(st.session_state.answer_results)
+        correct_count = sum(1 for item in st.session_state.answer_results if item["correct"])
+        st.metric("総回答数", total_attempts)
+        st.metric("正答率", f"{round(correct_count / total_attempts * 100, 1)}%")
+
+        history_df = pd.DataFrame(st.session_state.answer_results)
+        history_df["結果"] = history_df["correct"].map({True: "正解", False: "不正解"})
+        st.dataframe(history_df[["word", "結果"]], use_container_width=True, hide_index=True)
+
+with memo_tab:
+    entry = WORDS[st.session_state.current_index]
+    st.subheader(f"{entry['word']} の覚え方メモ")
+    st.caption("収録されている単語を選んで、覚え方メモを残しましょう。")
+
+    word_options = [item["word"] for item in WORDS]
+    selected_word = st.selectbox("単語を選ぶ", word_options, index=word_options.index(st.session_state.memo_target_word))
+    if selected_word != st.session_state.memo_target_word:
+        st.session_state.memo_target_word = selected_word
+        st.session_state.current_index = next(i for i, entry in enumerate(WORDS) if entry["word"] == selected_word)
+        st.session_state.card_stage = 0
+        st.rerun()
+
+    current_memo = get_memo_for_word(selected_word)
+    memo_text = st.text_area("メモを入力", value=current_memo, height=180)
+    if st.button("メモを保存", use_container_width=True):
+        save_word_memo(selected_word, memo_text)
+        st.rerun()
+
+    if st.session_state.memo_feedback:
+        st.success(st.session_state.memo_feedback)
+
+    if current_memo:
+        st.info("保存済みのメモ")
+        st.write(current_memo)
 
 st.divider()
 st.caption("英単語は分解のつながりを意識すると覚えやすくなります。次は自分で接頭語・語根・接尾語を見つけてみましょう。")
