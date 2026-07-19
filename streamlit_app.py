@@ -8,7 +8,7 @@ import word_builder_component as wb_component
 # ------------------------------
 # ページ設定
 # ------------------------------
-st.set_page_config(page_title="英単語分解学習", page_icon="📚", layout="centered")
+st.set_page_config(page_title="英単語分解学習", page_icon="📚", layout="wide")
 
 st.markdown(
     """
@@ -133,8 +133,8 @@ if "memory_message" not in st.session_state:
 # ------------------------------
 # UI
 # ------------------------------
-st.title("📚 接頭語・語根・接尾語で英単語を覚える")
-st.write("接頭語・語根・接尾語の分解から英単語を推測する暗記法を中心にし、英単語神経衰弱をミニゲームとして楽しめます。")
+st.title("📚 英単語を分解して覚える")
+st.write("接頭語・語根・接尾語を使って英単語の意味をつかみ、神経衰弱で復習できる学習アプリです。")
 
 with st.sidebar:
     st.header("覚え方のコツ")
@@ -150,7 +150,7 @@ with st.sidebar:
     if st.button("ゲームをやり直す", use_container_width=True):
         start_memory_game()
 
-learn_tab, game_tab = st.tabs(["暗記法", "英単語神経衰弱"])
+learn_tab, game_tab = st.tabs(["英単語を暗記する", "神経衰弱"])
 
 with learn_tab:
     entry = WORDS[st.session_state.current_index]
